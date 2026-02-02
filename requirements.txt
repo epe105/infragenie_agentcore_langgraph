@@ -1,0 +1,10 @@
+bedrock-agentcore
+langgraph
+langchain
+langchain-aws
+mcp
+requests
+python-dotenv
+boto3
+pydantic
+httpx

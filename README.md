@@ -458,33 +458,3 @@ ansible-playbook ansible_demo/delete-aws-vm.yaml
 # Delete S3 bucket
 aws s3 rb s3://infragenie-backups-XXXX --force
 ```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please follow these guidelines:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## 📝 License
-
-[Add your license here]
-
-## 🙏 Acknowledgments
-
-- **Ansible Automation Platform** for infrastructure automation
-- **AWS** for cloud services
-- **Anthropic** for Claude AI models
-- **LangGraph** for multi-agent orchestration
-- **Model Context Protocol (MCP)** for tool integration
-
-## 📧 Contact
-
-[Add contact information]
-
----
-
-Built with ❤️ using Multi-Agent AI Orchestration

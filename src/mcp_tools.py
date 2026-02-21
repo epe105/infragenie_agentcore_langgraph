@@ -38,10 +38,16 @@ class MCPToolWrapper(BaseTool):
             # Get fresh token
             token = self.token_manager.get_token()
             
-            # Get MCP server URL from environment
+            # Get MCP server URL from environment or Parameter Store
             mcp_server_url = os.getenv("ANSIBLE_MCP_SERVER_URL")
             if not mcp_server_url:
-                return "Error: ANSIBLE_MCP_SERVER_URL environment variable not set"
+                # Try to get from Parameter Store
+                try:
+                    import boto3
+                    ssm = boto3.client('ssm', region_name='us-east-1')
+                    mcp_server_url = ssm.get_parameter(Name='/infragenie/oauth/server_url')['Parameter']['Value']
+                except Exception as e:
+                    return f"Error: ANSIBLE_MCP_SERVER_URL environment variable not set and failed to load from Parameter Store: {e}"
             
             # Use HTTP streaming like the Strands version
             import httpx
@@ -73,20 +79,14 @@ class MCPToolWrapper(BaseTool):
                     }
                 ) as response:
                     
-                    print(f"Streaming Initialize Response Status: {response.status_code}")
-                    
                     # Extract session ID from headers
                     session_id = response.headers.get('mcp-session-id')
                     if not session_id:
                         return f"Failed to get session ID from streaming response. Status: {response.status_code}"
                     
-                    print(f"Got streaming session ID: {session_id}")
-                    
-                    # Read the initialize response stream
+                    # Read the initialize response stream (silently)
                     async for chunk in response.aiter_text():
-                        print(f"Initialize stream chunk: {chunk[:100]}...")
-                        # Process initialize response if needed
-                        pass
+                        pass  # Process initialize response silently
                 
                 # Now make the tool call with streaming
                 async with client.stream(
@@ -109,15 +109,11 @@ class MCPToolWrapper(BaseTool):
                     }
                 ) as response:
                     
-                    print(f"Streaming Tool Call Response Status: {response.status_code}")
-                    
                     if response.status_code == 200:
                         # Read the streaming response
                         full_response = ""
                         async for chunk in response.aiter_text():
                             full_response += chunk
-                        
-                        print(f"Full streaming response: {full_response[:500]}...")
                         
                         # Parse SSE format
                         if full_response.startswith("event: message\ndata: "):
@@ -129,7 +125,6 @@ class MCPToolWrapper(BaseTool):
                             
                             try:
                                 result = json.loads(json_str)
-                                print(f"Parsed streaming JSON result: {result}")
                                 
                                 if "result" in result and "content" in result["result"]:
                                     content_parts = []

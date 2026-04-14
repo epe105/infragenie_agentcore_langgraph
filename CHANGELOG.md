@@ -2,6 +2,77 @@
 
 ## Recent Fixes (Current Session)
 
+### Added: LLM-Based Reflection (Major Enhancement)
+
+**What Changed:**
+Upgraded reflection from rule-based templates to dynamic LLM-powered analysis using Claude 3.5 Sonnet.
+
+**Why:**
+- Rule-based reflection was static and generic
+- Couldn't adapt to unexpected situations
+- Didn't provide genuine insights
+- Same output every time
+
+**Solution:**
+Implemented async LLM-based reflection with fallback protection:
+
+```python
+async def _generate_reflection(state: InfraState) -> dict:
+    llm = ChatBedrock(
+        model_id="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        model_kwargs={"temperature": 0.7, "max_tokens": 1000}
+    )
+    
+    # Build detailed context from workflow state
+    workflow_context = f"""
+    Analyze this infrastructure automation workflow...
+    - Risk Score: {state['risk_score']}/100
+    - Security Remediated: {state['security_remediated']}
+    ...
+    """
+    
+    response = await llm.ainvoke(workflow_context)
+    return json.loads(response.content)
+```
+
+**Files Modified:**
+- `src/infrastructure_lifecycle_demo.py` - LLM-powered `_generate_reflection()`
+- `src/security_demo.py` - LLM-powered `_reflect_on_workflow()`
+- `docs/REFLECTION_EXPLAINED.md` - Complete rewrite explaining LLM approach
+- `docs/LLM_REFLECTION_UPGRADE.md` - New upgrade guide
+
+**Key Features:**
+1. **Dynamic Analysis**: LLM analyzes actual workflow execution
+2. **Context-Specific**: References actual values (bucket names, risk scores)
+3. **Adaptive**: Different insights for different scenarios
+4. **Fallback Protection**: Rule-based fallback if LLM fails
+5. **Higher Temperature**: 0.7 for creative, insightful reflection
+
+**Benefits:**
+- ✅ Genuine AI-powered meta-cognition
+- ✅ Adapts to any scenario
+- ✅ Provides specific, actionable insights
+- ✅ Demonstrates advanced AI capabilities
+- ✅ More engaging and informative
+
+**Performance:**
+- Adds ~2-3 seconds per reflection
+- ~1000 tokens per reflection
+- ~$0.003 per reflection (minimal cost)
+
+**Example Output:**
+```
+Successfully orchestrated a complete infrastructure lifecycle where 
+the Observability Agent detected a critical security vulnerability 
+(risk score 100/100) in bucket 'infragenie-backups-1863'. The 
+multi-agent system autonomously coordinated remediation, reducing 
+risk to 10/100 within seconds.
+```
+
+**Status:** ✅ Complete
+
+---
+
 ### Added: Virtual Environment Activation Reminders
 
 **Problem:**

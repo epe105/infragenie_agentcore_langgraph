@@ -1,62 +1,44 @@
 # InfraGenie Scripts
 
-Executable scripts for running and managing InfraGenie demos.
+## The Only Script You Need
 
-## Scripts
+### run_demo_interactive.py
 
-### run_demo.py
-
-Main demo runner that calls your deployed AgentCore agent.
+**This is the ONLY script you run.** It handles everything:
+- Interactive menu with demo options
+- Two-level approval (plan approval + remediation approval)
+- Command-line options for automation
+- Natural language prompts
 
 **Usage:**
 ```bash
-# Interactive menu
-python scripts/run_demo.py
+# Interactive menu (recommended)
+python scripts/run_demo_interactive.py
 
 # Direct commands
-python scripts/run_demo.py --infrastructure    # Infrastructure lifecycle demo
-python scripts/run_demo.py --security          # Security scan demo
-python scripts/run_demo.py --query "List all AAP inventories"
+python scripts/run_demo_interactive.py --infrastructure    # Infrastructure lifecycle demo
+python scripts/run_demo_interactive.py --security          # Security scan demo
+
+# Natural language prompts
+python scripts/run_demo_interactive.py --prompt "provision an ec2 vm and an s3 bucket"
+python scripts/run_demo_interactive.py --prompt "scan my s3 buckets for security issues"
+
+# Get help
+python scripts/run_demo_interactive.py --help
 ```
 
 **Requirements:**
+- Virtual environment activated (`source .venv/bin/activate`)
 - AgentCore CLI installed (`pip install agentcore`)
 - Agent deployed to AgentCore (`agentcore deploy`)
 - AWS credentials configured
 
 **What it does:**
-- Calls your deployed agent via `agentcore invoke`
-- No local dependencies needed (agent runs in AWS)
-- Demonstrates multi-agent workflows through natural language
-
-### cleanup_demo.py
-
-Cleans up resources created by InfraGenie demos.
-
-**Usage:**
-```bash
-# Interactive menu
-python scripts/cleanup_demo.py
-
-# Direct commands
-python scripts/cleanup_demo.py --all           # Clean up everything
-python scripts/cleanup_demo.py --ec2           # EC2 instances only
-python scripts/cleanup_demo.py --s3            # S3 buckets only
-python scripts/cleanup_demo.py --list          # List resources
-python scripts/cleanup_demo.py --bucket <name> # Specific bucket
-```
-
-**Requirements:**
-- Python virtual environment activated
-- MCP servers running (Ansible MCP + AWS MCP)
-- AWS credentials configured
-- AAP credentials configured
-
-**What it does:**
-- Lists InfraGenie demo resources (EC2, S3)
-- Deletes S3 buckets via AWS MCP
-- Deletes EC2 instances via Ansible AAP job template
-- Provides cleanup summary
+1. **Step 1: Planning** - Creates execution plan using system prompt-based planner
+2. **Approval Gate #1** - Prompts for plan approval (strategic decision)
+3. **Step 2: Execution** - Runs multi-agent workflow
+4. **Approval Gate #2** - Prompts for remediation approval (tactical decision)
+5. **Step 3: Completion** - Applies remediation and generates insights
 
 ## Setup
 
@@ -67,6 +49,8 @@ source .venv/bin/activate
 ```
 
 You'll see `(.venv)` in your prompt when activated.
+
+**Steps:**
 
 1. **Activate virtual environment:**
    ```bash
@@ -82,9 +66,14 @@ You'll see `(.venv)` in your prompt when activated.
    - Copy `.env.example` to `.env`
    - Add your AAP and AWS credentials
 
-4. **Deploy agent (for run_demo.py):**
+4. **Deploy agent:**
    ```bash
    agentcore deploy
+   ```
+
+5. **Run the demo:**
+   ```bash
+   python scripts/run_demo_interactive.py
    ```
 
 ## Troubleshooting
@@ -99,13 +88,6 @@ source .venv/bin/activate
 
 Look for `(.venv)` at the start of your prompt. If you don't see it, the environment isn't active.
 
-### "No module named 'aws_mcp_tools'"
-
-This means the script can't find the source modules. Make sure:
-- You're running from the project root: `python scripts/cleanup_demo.py`
-- The `src/` directory exists with the MCP tool modules
-- Your virtual environment is activated: `source .venv/bin/activate`
-
 ### "agentcore command not found"
 
 Install the AgentCore CLI:
@@ -113,31 +95,59 @@ Install the AgentCore CLI:
 pip install agentcore
 ```
 
-### "AWS MCP tools not available"
+### Script won't start
 
 Make sure:
-- MCP servers are configured in `.bedrock_agentcore.yaml`
-- AWS credentials are in `.env`
+- Virtual environment is activated: `source .venv/bin/activate`
+- You're running from the project root: `python scripts/run_demo_interactive.py`
 - Agent is deployed: `agentcore deploy`
 
-### "Could not find 'AWS - Delete VM' job template"
+### "AWS credentials expired"
 
-Make sure:
-- AAP credentials are in `.env`
-- Job template exists in AAP
-- Ansible MCP server is running
-
-## Architecture
-
-```
-scripts/
-├── run_demo.py       → Calls AgentCore agent (no local imports)
-└── cleanup_demo.py   → Uses MCP tools directly (imports from src/)
+Refresh your AWS credentials:
+```bash
+aws sso login
 ```
 
-**run_demo.py** is simple - it just calls the deployed agent via CLI.
+### Demo times out
 
-**cleanup_demo.py** needs direct access to MCP tools because it performs cleanup operations that aren't part of the agent's workflow.
+The demo creates real infrastructure which takes time:
+- Planning: ~10 seconds
+- Execution: 3-10 minutes (EC2 provisioning is slow)
+- Be patient and wait for prompts
+
+## How It Works
+
+```
+User runs: python scripts/run_demo_interactive.py
+    ↓
+Script calls: agentcore invoke (deployed agent in AWS)
+    ↓
+Agent executes: Multi-agent workflow with MCP tools
+    ↓
+Script handles: Two approval prompts (plan + remediation)
+    ↓
+Final response: Execution log + summary
+```
+
+**Simple and clean** - just one script to run!
+
+## Command Examples
+
+```bash
+# Most common: Interactive menu
+python scripts/run_demo_interactive.py
+
+# Infrastructure lifecycle demo
+python scripts/run_demo_interactive.py --infrastructure
+
+# Security scan demo
+python scripts/run_demo_interactive.py --security
+
+# Natural language (administrators speak naturally!)
+python scripts/run_demo_interactive.py --prompt "provision an ec2 vm and an s3 bucket"
+python scripts/run_demo_interactive.py --prompt "scan my buckets for security issues"
+```
 
 ## Related Documentation
 
@@ -145,4 +155,3 @@ scripts/
 - [Architecture](../docs/ARCHITECTURE.md) - System design
 - [Code Walkthrough](../docs/CODE_WALKTHROUGH.md) - Source code guide
 - [Demo Talking Points](../docs/DEMO_TALKING_POINTS.md) - Presentation guide
-- [Reflection Explained](../docs/REFLECTION_EXPLAINED.md) - How reflection works

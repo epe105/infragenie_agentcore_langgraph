@@ -28,6 +28,9 @@ class SecurityState(TypedDict):
     vulnerable_buckets: List[str]
     risk_score: float
     remediation_required: bool
+    approval_needed: bool  # Flag indicating approval is required
+    approval_request: dict  # Approval request details
+    remediation_approved: bool  # Human approval decision
     remediation_applied: bool
     validation_passed: bool
     logs: Annotated[List[str], add_messages]
@@ -265,19 +268,86 @@ def analysis_agent(state: SecurityState) -> SecurityState:
     return state
 
 
-# Agent 4: Remediation Agent (Applies Fixes)
+# Agent 4: Approval Agent (Human-in-the-Loop)
+def approval_agent(state: SecurityState) -> SecurityState:
+    """
+    👤 Approval Agent - Prepares approval request data
+
+    This is the END of Graph 2. It returns approval request details
+    that will be presented to the human for decision.
+    """
+    logs = state.get("logs", [])
+    bucket_name = state["bucket_name"]
+    risk_score = state["risk_score"]
+
+    if not state["remediation_required"]:
+        logs.append("   ℹ️  No approval needed - no remediation required")
+        print("   ℹ️  No approval needed - no remediation required")
+        state["remediation_approved"] = False
+        state["approval_needed"] = False
+        state["logs"] = logs
+        return state
+
+    print("\n👤 [APPROVAL AGENT] Preparing approval request...")
+    print(f"   Bucket: {bucket_name}")
+    print(f"   Risk Score: {risk_score}/100")
+
+    # Store approval request in state - this signals that approval is needed
+    state["approval_needed"] = True
+    state["approval_request"] = {
+        "bucket_name": bucket_name,
+        "risk_score": risk_score,
+        "remediation_details": {
+            "action": "Block all public access",
+            "method": "AWS S3 Public Access Block",
+            "configuration": {
+                "BlockPublicAcls": True,
+                "IgnorePublicAcls": True,
+                "BlockPublicPolicy": True,
+                "RestrictPublicBuckets": True
+            }
+        },
+        "compliance_frameworks": [
+            "CIS AWS Foundations: 2.1.5",
+            "NIST 800-53: AC-3",
+            "PCI DSS: 1.2.1",
+            "GDPR: Article 32"
+        ],
+        "impact": [
+            f"Any public access to bucket '{bucket_name}' will be blocked",
+            "Applications relying on public access may be affected",
+            "Existing objects remain unchanged",
+            "Bucket policies granting public access will be ignored"
+        ]
+    }
+
+    logs.append(f"✅ Approval request prepared for '{bucket_name}'")
+    state["logs"] = logs
+    return state
+
+
+# Agent 5: Remediation Agent (Applies Fixes)
 async def remediation_agent_mcp(state: SecurityState) -> SecurityState:
     """
     🔧 Remediation Agent - Blocks public access via AWS MCP
+
+    Only executes if human approval has been granted
     """
     print("\n🔧 [REMEDIATION AGENT] Applying security fix via AWS MCP...")
-    
+
     logs = state.get("logs", [])
     bucket_name = state["bucket_name"]
-    
+
     if not state["remediation_required"]:
         logs.append("   ℹ️  No remediation needed")
         print("   ℹ️  No remediation needed")
+        state["remediation_applied"] = False
+        state["logs"] = logs
+        return state
+
+    if not state.get("remediation_approved", False):
+        logs.append("   ⛔ Remediation skipped - human approval not granted")
+        print("   ⛔ Remediation skipped - human approval not granted")
         state["remediation_applied"] = False
         state["logs"] = logs
         return state
@@ -419,9 +489,10 @@ async def reflection_agent_mcp(state: SecurityState) -> SecurityState:
     
     # Step 2: Reflection on Process
     print("   Step 2: Reflecting on workflow and generating insights...")
+    print("   🤖 Generating AI-powered reflection...")
     
-    # Analyze the workflow logs
-    reflection = _reflect_on_workflow(state)
+    # Analyze the workflow with LLM
+    reflection = await _reflect_on_workflow(state)
     
     # Add reflection to logs
     logs.append("\n🤔 REFLECTION & INSIGHTS:")
@@ -468,13 +539,93 @@ async def reflection_agent_mcp(state: SecurityState) -> SecurityState:
     return state
 
 
-def _reflect_on_workflow(state: SecurityState) -> dict:
+async def _reflect_on_workflow(state: SecurityState) -> dict:
     """
-    Reflection logic: Analyze the workflow and generate insights
+    LLM-based reflection: Analyze the workflow and generate insights
+    """
+    from langchain_aws import ChatBedrock
+    import json
+    import os
     
-    This simulates what an LLM would do - analyzing the process and
-    identifying improvements. In production, you'd use an actual LLM here.
-    """
+    # Initialize LLM for reflection
+    llm = ChatBedrock(
+        model_id="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        region_name=os.getenv("AWS_REGION", "us-east-1"),
+        model_kwargs={
+            "temperature": 0.7,  # Higher temperature for more creative reflection
+            "max_tokens": 1000
+        }
+    )
+    
+    # Build context from workflow state
+    bucket_name = state["bucket_name"]
+    risk_score = state["risk_score"]
+    validation_passed = state["validation_passed"]
+    vulnerable_count = len(state.get("vulnerable_buckets", []))
+    all_buckets_count = len(state.get("all_buckets", []))
+    
+    workflow_context = f"""
+Analyze this security scanning and remediation workflow execution and provide insightful reflection.
+
+WORKFLOW EXECUTION SUMMARY:
+- Total Buckets Scanned: {all_buckets_count}
+- Vulnerable Buckets Found: {vulnerable_count}
+- Target Bucket: {bucket_name}
+- Risk Score: {int(risk_score)}/100
+- Remediation Applied: {state.get('remediation_applied', False)}
+- Post-Remediation Validation: {'PASSED' if validation_passed else 'FAILED'}
+
+AGENT EXECUTION FLOW:
+1. Observability Agent → Scanned {all_buckets_count} buckets, found {vulnerable_count} vulnerable
+2. Security Agent → Validated findings against compliance frameworks
+3. Analysis Agent → Calculated risk score: {int(risk_score)}/100
+4. Remediation Agent → {'✅ Applied security fixes' if state.get('remediation_applied') else '⏭️ Skipped (low risk)'}
+5. Reflection Agent → Currently analyzing
+
+SECURITY CONTEXT:
+- Compliance Frameworks: CIS AWS Foundations, NIST 800-53, PCI DSS, GDPR
+- Remediation Type: S3 Public Access Block configuration
+- Validation Result: {'✅ Bucket secured' if validation_passed else '⚠️ Issues remain'}
+
+Provide a JSON response with:
+1. "summary": A 2-3 sentence insightful summary of the security workflow and its effectiveness
+2. "improvements": Array of 2-4 specific improvements identified from this execution
+3. "recommendations": Array of 3-4 actionable recommendations for enhancing security automation
+
+Be specific, reference actual values (bucket counts, risk scores), and provide genuine insights about the security automation effectiveness.
+Format as valid JSON only, no markdown.
+"""
+    
+    try:
+        # Get LLM reflection
+        response = await llm.ainvoke(workflow_context)
+        
+        # Parse JSON response
+        reflection_text = response.content.strip()
+        
+        # Remove markdown code blocks if present
+        if reflection_text.startswith("```json"):
+            reflection_text = reflection_text.split("```json")[1].split("```")[0].strip()
+        elif reflection_text.startswith("```"):
+            reflection_text = reflection_text.split("```")[1].split("```")[0].strip()
+        
+        reflection = json.loads(reflection_text)
+        
+        # Validate structure
+        if not all(key in reflection for key in ["summary", "improvements", "recommendations"]):
+            raise ValueError("Missing required keys in reflection")
+        
+        return reflection
+        
+    except Exception as e:
+        print(f"   ⚠️  LLM reflection failed ({str(e)}), using fallback")
+        
+        # Fallback to rule-based reflection if LLM fails
+        return _generate_fallback_security_reflection(state)
+
+
+def _generate_fallback_security_reflection(state: SecurityState) -> dict:
+    """Fallback rule-based reflection if LLM fails"""
     reflection = {
         "summary": "",
         "improvements": [],
@@ -548,9 +699,16 @@ def _reflect_on_workflow(state: SecurityState) -> dict:
 
 
 # Conditional Routing Functions
-def should_remediate(state: SecurityState) -> str:
-    """Decide whether to remediate based on risk score"""
+def should_request_approval(state: SecurityState) -> str:
+    """Decide whether to request approval based on risk score"""
     if state["remediation_required"] and state["risk_score"] >= 50:
+        return "approval"
+    return "end"
+
+
+def should_remediate(state: SecurityState) -> str:
+    """Decide whether to remediate based on approval"""
+    if state.get("remediation_approved", False):
         return "remediate"
     return "end"
 
@@ -569,30 +727,45 @@ def should_validate(state: SecurityState) -> str:
 def create_security_workflow_scan_all() -> StateGraph:
     """
     Create the LangGraph workflow that scans all buckets (sync version for CLI)
+
+    Workflow: Observability → Security → Analysis → Approval → Remediation → Reflection
     """
     workflow = StateGraph(SecurityState)
-    
+
     # Add nodes - using scan-all version for observability
     workflow.add_node("observability", lambda s: asyncio.run(observability_agent_scan_all(s)))
     workflow.add_node("security", security_agent)
     workflow.add_node("analysis", analysis_agent)
+    workflow.add_node("approval", approval_agent)  # Human-in-the-loop
     workflow.add_node("remediation", lambda s: asyncio.run(remediation_agent_mcp(s)))
     workflow.add_node("reflection", lambda s: asyncio.run(reflection_agent_mcp(s)))
-    
+
     # Define edges
     workflow.set_entry_point("observability")
     workflow.add_edge("observability", "security")
     workflow.add_edge("security", "analysis")
-    
+
+    # After analysis, request approval if remediation needed
     workflow.add_conditional_edges(
         "analysis",
+        should_request_approval,
+        {
+            "approval": "approval",
+            "end": END
+        }
+    )
+
+    # After approval, remediate if approved
+    workflow.add_conditional_edges(
+        "approval",
         should_remediate,
         {
             "remediate": "remediation",
             "end": END
         }
     )
-    
+
+    # After remediation, validate
     workflow.add_conditional_edges(
         "remediation",
         should_validate,
@@ -601,39 +774,56 @@ def create_security_workflow_scan_all() -> StateGraph:
             "end": END
         }
     )
-    
+
     workflow.add_edge("reflection", END)
-    
+
     return workflow.compile()
 
 
 def create_security_workflow_scan_all_async() -> StateGraph:
     """
     Create the LangGraph workflow that scans all buckets (async version for AgentCore)
+
+    Workflow: Observability → Security → Analysis → Approval → Remediation → Reflection
     """
+    from langgraph.checkpoint.memory import MemorySaver
+
     workflow = StateGraph(SecurityState)
-    
+
     # Add nodes - async versions (no asyncio.run wrapper)
     workflow.add_node("observability", observability_agent_scan_all)
     workflow.add_node("security", security_agent)
     workflow.add_node("analysis", analysis_agent)
+    workflow.add_node("approval", approval_agent)  # Human-in-the-loop
     workflow.add_node("remediation", remediation_agent_mcp)
     workflow.add_node("reflection", reflection_agent_mcp)
-    
+
     # Define edges
     workflow.set_entry_point("observability")
     workflow.add_edge("observability", "security")
     workflow.add_edge("security", "analysis")
-    
+
+    # After analysis, request approval if remediation needed
     workflow.add_conditional_edges(
         "analysis",
+        should_request_approval,
+        {
+            "approval": "approval",
+            "end": END
+        }
+    )
+
+    # After approval, remediate if approved
+    workflow.add_conditional_edges(
+        "approval",
         should_remediate,
         {
             "remediate": "remediation",
             "end": END
         }
     )
-    
+
+    # After remediation, validate
     workflow.add_conditional_edges(
         "remediation",
         should_validate,
@@ -642,9 +832,90 @@ def create_security_workflow_scan_all_async() -> StateGraph:
             "end": END
         }
     )
-    
+
     workflow.add_edge("reflection", END)
-    
+
+    # Compile with checkpointer to enable interrupts
+    checkpointer = MemorySaver()
+    return workflow.compile(checkpointer=checkpointer)
+
+
+# ============================================================================
+# Three-Graph Architecture for Human-in-the-Loop
+# ============================================================================
+
+def create_graph1_scan_buckets_async() -> StateGraph:
+    """
+    Graph 1: Scan All Buckets
+
+    Scans all S3 buckets and identifies vulnerable ones
+    Returns state with all_buckets and vulnerable_buckets lists
+    """
+    workflow = StateGraph(SecurityState)
+
+    # Add node
+    workflow.add_node("observability", observability_agent_scan_all)
+
+    # Define edges
+    workflow.set_entry_point("observability")
+    workflow.add_edge("observability", END)
+
+    return workflow.compile()
+
+
+def create_graph2_analyze_approve_async() -> StateGraph:
+    """
+    Graph 2: Validate + Analyze + Approval
+
+    Validates findings, calculates risk, and prepares approval request
+    Returns state with approval_needed=True and approval_request details
+    """
+    workflow = StateGraph(SecurityState)
+
+    # Add nodes
+    workflow.add_node("security", security_agent)
+    workflow.add_node("analysis", analysis_agent)
+    workflow.add_node("approval", approval_agent)
+
+    # Define edges
+    workflow.set_entry_point("security")
+    workflow.add_edge("security", "analysis")
+
+    # Always go to approval after analysis (approval agent decides if approval is needed)
+    workflow.add_edge("analysis", "approval")
+    workflow.add_edge("approval", END)
+
+    return workflow.compile()
+
+
+def create_graph3_remediate_reflect_async() -> StateGraph:
+    """
+    Graph 3: Remediate + Reflect
+
+    Takes approval decision, applies remediation, and validates results
+    Expects state with remediation_approved=True/False
+    """
+    workflow = StateGraph(SecurityState)
+
+    # Add nodes
+    workflow.add_node("remediation", remediation_agent_mcp)
+    workflow.add_node("reflection", reflection_agent_mcp)
+
+    # Define edges
+    workflow.set_entry_point("remediation")
+
+    # After remediation, validate if remediation was applied
+    workflow.add_conditional_edges(
+        "remediation",
+        should_validate,
+        {
+            "validate": "reflection",
+            "end": END
+        }
+    )
+
+    workflow.add_edge("reflection", END)
+
     return workflow.compile()
 
 

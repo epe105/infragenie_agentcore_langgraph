@@ -26,17 +26,22 @@ import subprocess
 import json
 import sys
 import re
-
+import os
 
 def invoke_agent(prompt: str) -> str:
     """Invoke the deployed AgentCore agent"""
     print(f"📨 Sending to AgentCore: {prompt}\n")
     print("⏳ Waiting for response...\n")
-    
+
     try:
+        # Find agentcore CLI - check in venv first, then PATH
+        agentcore_cmd = '.venv/bin/agentcore'
+        if not os.path.exists(agentcore_cmd):
+            agentcore_cmd = 'agentcore'
+
         # Call the deployed agent via agentcore CLI
         result = subprocess.run(
-            ['agentcore', 'invoke', json.dumps({"prompt": prompt})],
+            [agentcore_cmd, 'invoke', json.dumps({"prompt": prompt})],
             capture_output=True,
             text=True,
             timeout=300  # 5 minute timeout

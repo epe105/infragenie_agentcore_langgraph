@@ -17,31 +17,86 @@ InfraGenie runs entirely on AWS AgentCore:
 ```
 User (Local Machine)
     ↓
-scripts/run_demo.py
+scripts/run_demo_interactive.py
     ↓
 agentcore invoke (CLI)
     ↓
-┌─────────────────────────────────────────────────────────┐
-│         AWS AgentCore Runtime (Cloud)                   │
-│                                                          │
-│  src/agentcore_main.py (Entry Point)                   │
-│         ↓                                                │
-│  InfraGenieAgentCore                                    │
-│  ├── LLM: Claude 3.5 Sonnet (Bedrock)                  │
-│  ├── Keyword Detection                                  │
-│  └── Workflow Routing                                   │
-│         ↓                                                │
-│  LangGraph Workflows                                    │
-│  ├── Infrastructure Lifecycle (7 agents)                │
-│  └── Security Scan (5 agents)                           │
-│         ↓                                                │
-│  MCP Tool Integration                                   │
-│  ├── Ansible MCP (OAuth)                                │
-│  └── AWS MCP                                            │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│              AWS AgentCore Runtime (Cloud)                      │
+│                                                                 │
+│  src/agentcore_main.py (Entry Point)                          │
+│         ↓                                                       │
+│  ┌───────────────────────────────────────────────────────┐    │
+│  │   InfraGenieAgentCore (MAIN ORCHESTRATOR)             │    │
+│  │                                                         │    │
+│  │   Responsibilities:                                     │    │
+│  │   • Receives all user messages                         │    │
+│  │   • Keyword detection & routing                        │    │
+│  │   • Manages all components                             │    │
+│  │   • Formats responses                                  │    │
+│  │                                                         │    │
+│  │   LLM: Claude 3.5 Sonnet (Bedrock)                    │    │
+│  │   MCP Tools: Ansible AAP + AWS (Lazy Loaded)          │    │
+│  │                                                         │    │
+│  │   ┌─────────────────────────────────────────────┐     │    │
+│  │   │ Component: PlannerAgent                     │     │    │
+│  │   │ • Creates execution plans                   │     │    │
+│  │   │ • System prompt-based (no MCP tools)        │     │    │
+│  │   │ • Fast response (~10 seconds)               │     │    │
+│  │   └─────────────────────────────────────────────┘     │    │
+│  │                                                         │    │
+│  │   ┌─────────────────────────────────────────────┐     │    │
+│  │   │ Workflow: Infrastructure Lifecycle          │     │    │
+│  │   │ • 7 specialized execution agents            │     │    │
+│  │   │ • Provisions + Secures infrastructure       │     │    │
+│  │   │ • LangGraph orchestration                   │     │    │
+│  │   └─────────────────────────────────────────────┘     │    │
+│  │                                                         │    │
+│  │   ┌─────────────────────────────────────────────┐     │    │
+│  │   │ Workflow: Security Scan                     │     │    │
+│  │   │ • 5 specialized execution agents            │     │    │
+│  │   │ • Scans + Remediates vulnerabilities        │     │    │
+│  │   │ • LangGraph orchestration                   │     │    │
+│  │   └─────────────────────────────────────────────┘     │    │
+│  │                                                         │    │
+│  │   ┌─────────────────────────────────────────────┐     │    │
+│  │   │ Fallback: General LLM Query                 │     │    │
+│  │   │ • Uses LangGraph with MCP tools             │     │    │
+│  │   │ • Natural language interface                │     │    │
+│  │   └─────────────────────────────────────────────┘     │    │
+│  └───────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
     ↓                    ↓
 Ansible AAP         AWS Services
 (Job Templates)     (EC2, S3)
+```
+
+## Two-Level Approval Flow
+
+```
+User Request
+    ↓
+┌──────────────────────────────────┐
+│ LEVEL 1: Planning (Strategic)   │
+│                                  │
+│ Planner Agent generates plan     │
+│ Shows: steps, time, risks        │
+│   ↓                              │
+│ 👤 APPROVAL GATE #1              │
+│ "Execute this plan?"             │
+└──────────────────────────────────┘
+    ↓ (if approved)
+┌──────────────────────────────────┐
+│ LEVEL 2: Execution (Tactical)   │
+│                                  │
+│ 7 Agents execute workflow        │
+│ Detects security issues          │
+│   ↓                              │
+│ 👤 APPROVAL GATE #2              │
+│ "Apply remediation?"             │
+└──────────────────────────────────┘
+    ↓ (if approved)
+Final Summary with Insights
 ```
 
 
@@ -50,11 +105,14 @@ Ansible AAP         AWS Services
 ```
 infragenie_agentcore_langgraph/
 ├── scripts/                    # Executable scripts (local)
-│   ├── run_demo.py            # Calls deployed agent
-│   └── cleanup_demo.py        # Resource cleanup
+│   └── run_demo_interactive.py # ← THE ONLY SCRIPT YOU RUN
+│                               # Interactive demo with 2-level approval
+│                               # Supports --prompt for natural language
 ├── src/                        # Source code (deployed to AgentCore)
 │   ├── agentcore_main.py      # AgentCore entry point
-│   ├── infragenie_langgraph_agent.py  # Agent with LLM
+│   ├── infragenie_langgraph_agent.py  # Agent with LLM & routing
+│   ├── planner_agent.py       # System prompt-based planner
+│   ├── planner_prompt.py      # Planner system prompt (defines tool!)
 │   ├── infrastructure_lifecycle_demo.py  # 7-agent workflow
 │   ├── security_demo.py       # 5-agent workflow
 │   ├── mcp_tools.py           # Ansible MCP integration
@@ -62,6 +120,9 @@ infragenie_agentcore_langgraph/
 │   ├── oauth_manager.py       # OAuth token management
 │   └── system_prompt.py       # Agent system prompt
 ├── docs/                       # Documentation
+│   ├── ARCHITECTURE.md        # System architecture (this file)
+│   ├── CODE_WALKTHROUGH.md    # Code explanation
+│   └── DEMO_TALKING_POINTS.md # Presentation guide
 └── README.md                   # Main documentation
 ```
 
@@ -71,27 +132,92 @@ infragenie_agentcore_langgraph/
 
 - AWS AgentCore entry point
 - Receives user messages via API
-- Creates/retrieves agent instance
+- Creates/retrieves main agent instance
 - Returns formatted responses
 
-### 2. Agent Core (`src/infragenie_langgraph_agent.py`)
+### 2. Main Orchestrator Agent (`src/infragenie_langgraph_agent.py`)
+
+**Class: InfraGenieAgentCore**
+
+This is the **main orchestrator** that manages all components and workflows.
 
 **Responsibilities:**
-- LLM instantiation (Claude 3.5 Sonnet)
-- Tool loading (Ansible + AWS MCP)
-- Keyword detection for workflow routing
-- Message processing and response formatting
+- **Message Routing**: Receives all user messages and routes to appropriate components
+- **LLM Management**: Instantiates Claude 3.5 Sonnet (Bedrock)
+- **Tool Management**: Lazy loads Ansible MCP and AWS MCP tools
+- **Keyword Detection**: Intelligent detection supporting natural language
+- **Component Orchestration**: Manages PlannerAgent and workflow components
+- **Response Formatting**: Formats all outputs for user display
 
 **Key Methods:**
-- `__init__()` - Instantiates LLM
-- `initialize()` - Loads tools, builds graph
-- `process_message()` - Routes to workflows or LLM
-- `_is_infrastructure_lifecycle_request()` - Keyword detection
-- `_run_infrastructure_lifecycle()` - Executes 7-agent workflow
-- `_run_security_scan()` - Executes 5-agent workflow
+- `__init__()` - Creates LLM, initializes PlannerAgent component
+- `initialize()` - Lazy loads MCP tools, builds LangGraph
+- `process_message()` - **Main routing logic** - routes to components
+- `_is_planner_request()` - Detects plan creation keywords
+- `_is_infrastructure_lifecycle_request()` - Detects execution keywords (natural language)
+- `create_infrastructure_plan()` - Routes to PlannerAgent component
+- `_run_infrastructure_lifecycle()` - Routes to 7-agent workflow component
+- `_run_security_scan()` - Routes to 5-agent workflow component
 
+**Routing Flow:**
+```python
+async def process_message(self, message: str) -> str:
+    # Check if planner request (no MCP tools needed)
+    if self._is_planner_request(message):
+        return await self.create_infrastructure_plan(message)  # → PlannerAgent
 
-### 3. Infrastructure Lifecycle Workflow (`src/infrastructure_lifecycle_demo.py`)
+    # Initialize MCP tools if needed
+    if not self.initialized:
+        await self.initialize()
+
+    # Route to infrastructure workflow?
+    if self._is_infrastructure_lifecycle_request(message):
+        return await self._run_infrastructure_lifecycle(message)  # → 7 agents
+
+    # Route to security workflow?
+    if self._is_security_scan_request(message):
+        return await self._run_security_scan(message)  # → 5 agents
+
+    # Fallback: general LLM query
+    return await self.graph.ainvoke(initial_state)
+```
+
+### 3. Planner Component (`src/planner_agent.py`)
+
+**Class: PlannerAgent**
+
+A **component** (not standalone agent) used by InfraGenieAgentCore for planning.
+
+**The "Deep Agent Pattern" - System Prompt-Based Tool**
+
+The planner demonstrates a unique pattern where the tool is defined entirely in the system prompt, not in code!
+
+**How it works:**
+1. System prompt (`planner_prompt.py`) defines a "tool" called `create_infrastructure_plan`
+2. LLM reads the prompt and understands how to create plans
+3. When asked, LLM generates structured JSON plans
+4. Code just parses and validates - no planning logic!
+
+**Key Features:**
+- **No Planning Code**: Tool behavior defined in prompt
+- **Dynamic**: LLM adapts plans to any request
+- **Fast**: No MCP tools needed, just LLM
+- **Flexible**: Update behavior by editing prompt
+
+**Planner Keywords:**
+- "create a plan"
+- "make a plan"
+- "plan for"
+- "show me a plan"
+
+**Output:**
+- Task summary and plain language explanation
+- 8 execution steps with tool attribution
+- Risk assessment and time estimates
+- Resources to create
+- Cleanup instructions
+
+### 4. Infrastructure Lifecycle Workflow (`src/infrastructure_lifecycle_demo.py`)
 
 **7-Agent Workflow:**
 
@@ -136,7 +262,7 @@ infragenie_agentcore_langgraph/
 - Collects logs for execution visibility
 - Generates reflection for insights
 
-### 4. Security Scan Workflow (`src/security_demo.py`)
+### 5. Security Scan Workflow (`src/security_demo.py`)
 
 **5-Agent Workflow:**
 
@@ -147,7 +273,13 @@ infragenie_agentcore_langgraph/
 5. **🔍 Reflection Agent** - Validates and reflects
 
 
-### 5. MCP Tool Integration
+### 6. MCP Tool Integration (Lazy Loading)
+
+**Lazy Loading Pattern:**
+- MCP tools are NOT loaded at module import time
+- Imported only when needed (execution workflows)
+- Planner works fast without waiting for MCP
+- Avoids 30-second AgentCore initialization timeout
 
 **Ansible MCP (`src/mcp_tools.py`):**
 - OAuth authentication
@@ -167,42 +299,91 @@ infragenie_agentcore_langgraph/
 
 ## Execution Flow
 
-### Demo Execution
+### Demo Execution (Main Orchestrator Flow)
 
 ```
-1. User runs: python scripts/run_demo.py
+1. User runs: python scripts/run_demo_interactive.py
    ↓
-2. Script calls: agentcore invoke '{"prompt": "infrastructure lifecycle"}'
+2. Script calls: agentcore invoke '{"prompt": "provision an ec2 vm and an s3 bucket"}'
    ↓
 3. AgentCore invokes: src/agentcore_main.py
    ↓
-4. Entry point calls: InfraGenieAgentCore.process_message()
+4. Entry point calls: InfraGenieAgentCore.process_message()  ← MAIN ORCHESTRATOR
    ↓
-5. Agent detects keyword: "infrastructure lifecycle"
+5. Main orchestrator: Keyword detection
+   - _is_planner_request()? NO
+   - _is_infrastructure_lifecycle_request()? YES
    ↓
-6. Routes to: _run_infrastructure_lifecycle()
+6. Main orchestrator routes to: _run_infrastructure_lifecycle()
    ↓
-7. Executes: 7-agent workflow
+7. Workflow component executes: 7-agent workflow (LangGraph)
    ↓
-8. Each agent:
+8. Each workflow agent:
    - Adds log entry
    - Calls MCP tools
    - Updates state
    ↓
-9. Returns: Formatted response with logs
+9. Main orchestrator: Formats response
    ↓
-10. User sees: Execution log + Summary
+10. Returns to user: Execution log + Summary
+```
+
+### Planner Execution (Main Orchestrator Flow)
+
+```
+1. User: "Create a plan for provision ec2 and s3"
+   ↓
+2. Script calls: agentcore invoke '{"prompt": "create a plan..."}'
+   ↓
+3. Entry point calls: InfraGenieAgentCore.process_message()  ← MAIN ORCHESTRATOR
+   ↓
+4. Main orchestrator: Keyword detection
+   - _is_planner_request()? YES
+   ↓
+5. Main orchestrator routes to: create_infrastructure_plan()
+   ↓
+6. Main orchestrator calls: self.planner.create_plan()  ← Planner component
+   ↓
+7. PlannerAgent component: Generates plan using LLM + system prompt
+   ↓
+8. Main orchestrator: Validates and formats plan
+   ↓
+9. Returns to user: Formatted plan
 ```
 
 ### Keyword Detection
 
-The agent uses keyword matching to route requests:
+The agent uses intelligent keyword matching to route requests:
 
-**Infrastructure Lifecycle Keywords:**
-- "infrastructure lifecycle"
-- "full lifecycle"
-- "provision and secure"
-- "infrastructure demo"
+**Planner Keywords (Fastest - No MCP):**
+- "create a plan"
+- "make a plan"
+- "plan for"
+- "show me a plan"
+
+**Infrastructure Lifecycle Detection (Smart Routing):**
+
+The agent uses a **flexible, natural language-friendly detection** that looks for combinations:
+
+1. **Action words**: provision, create, deploy, setup
+2. **Compute resources**: ec2, vm, instance
+3. **Storage resources**: s3, bucket, storage
+
+**Examples that work:**
+- ✅ "provision an ec2 vm and an s3 bucket"
+- ✅ "create a vm and s3 storage"
+- ✅ "deploy ec2 instance and bucket"
+- ✅ "setup vm and s3"
+
+**Detection Logic:**
+```python
+has_provision = any(word in message for word in ["provision", "create", "deploy", "setup"])
+has_compute = any(word in message for word in ["ec2", "vm", "instance"])
+has_storage = any(word in message for word in ["s3", "bucket", "storage"])
+
+if has_provision and has_compute and has_storage:
+    return True  # Trigger infrastructure lifecycle
+```
 
 **Security Scan Keywords:**
 - "security scan"
@@ -248,7 +429,32 @@ The agent uses keyword matching to route requests:
 - Shows multi-agent orchestration
 - Helps with debugging
 
-### 5. Reflection Pattern
+### 5. System Prompt-Based Planner (Deep Agent Pattern)
+
+**Why:** Tool behavior defined in prompt, not code
+- LLM generates plans dynamically
+- No planning logic to maintain
+- Update behavior by editing prompt
+- Demonstrates advanced agentic pattern
+- Fast execution (no MCP loading needed)
+
+### 6. Two-Level Approval
+
+**Why:** Strategic and tactical decision points
+- **Level 1**: Review plan before execution (save time/money)
+- **Level 2**: Approve specific remediations (granular control)
+- User understands what will happen upfront
+- Can abort at multiple points
+
+### 7. Lazy Loading
+
+**Why:** Avoid initialization timeouts
+- Planner runs without MCP tools
+- Tools loaded only when executing workflows
+- Faster response for planning requests
+- Stays under 30-second AgentCore timeout
+
+### 8. Reflection Pattern
 
 **Why:** Intelligent insights and recommendations
 - Analyzes workflow outcome

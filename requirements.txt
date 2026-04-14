@@ -1,3 +1,4 @@
+# Core Dependencies - InfraGenie AgentCore
 bedrock-agentcore
 langgraph
 langchain
@@ -8,3 +9,15 @@ python-dotenv
 boto3
 pydantic
 httpx
+aiohttp
+
+# UI Frontend Dependencies
+# Streamlit - Modern Python web app framework
+streamlit>=1.31.0
+
+# Gradio - ML-focused web UI framework
+gradio>=4.15.0
+
+# Optional: For enhanced UI features
+plotly>=5.18.0  # Interactive charts (if needed)
+pandas>=2.1.0   # Data handling (if needed)
